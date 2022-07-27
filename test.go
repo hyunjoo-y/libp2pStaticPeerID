@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -12,6 +11,8 @@ import (
 	"time"
 	 "crypto/ecdsa"
 
+	 swarm "github.com/libp2p/go-libp2p-swarm"	
+	 "github.com/libp2p/go-libp2p-core/network"
 	 ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	 libp2p "github.com/libp2p/go-libp2p"
 	 p2pCrypto "github.com/libp2p/go-libp2p-core/crypto"
@@ -25,12 +26,10 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/routing"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
-	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/multiformats/go-multiaddr"
 )
 
 var logger = log.Logger("group-chat")
-
 const topic = "sylo-group-chat-demo"
 
 type message struct {
@@ -45,7 +44,63 @@ type messageLog struct {
 	data  map[message]struct{}
 	clock uint
 }
+func errCheck(err error){
+	if err != nil{
+		panic(err)
+	}
+}
+func handleStream(stream network.Stream) {
+	fmt.Println("Got a new stream!")
 
+	// Create a buffer stream for non blocking read and write.
+	rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
+
+	go readData(rw)
+	go writeData(rw)
+
+	// 'stream' will stay open until you close it (or the other side closes it).
+}
+func readData(rw *bufio.ReadWriter) {
+	for {
+		str, err := rw.ReadString('\n')
+		if err != nil {
+			fmt.Println("Error reading from buffer")
+			panic(err)
+		}
+
+		if str == "" {
+			return
+		}
+		if str != "\n" {
+			fmt.Printf("\x1b[32m%s\x1b[0m>> ",str)
+		}
+
+	}
+}
+
+func writeData(rw *bufio.ReadWriter) {
+	stdReader := bufio.NewReader(os.Stdin)
+
+	for {
+		fmt.Print(">> ")
+		sendData, err := stdReader.ReadString('\n')
+		if err != nil {
+			fmt.Println("Error reading from stdin")
+			panic(err)
+		}
+
+		_, err = rw.WriteString(fmt.Sprintf("%s\n", sendData))
+		if err != nil {
+			fmt.Println("Error writing to buffer")
+			panic(err)
+		}
+		err = rw.Flush()
+		if err != nil {
+			fmt.Println("Error flushing buffer")
+			panic(err)
+		}
+	}
+}
 type LibP2PIdentity struct {
 	PrivateKey     p2pCrypto.PrivKey
 	PublicKey      p2pCrypto.PubKey
@@ -126,6 +181,9 @@ func main() {
 	_ = log.SetLogLevel("group-chat", "info")
 
 	// parse command line arguments
+	var connect bool
+	var dialID string
+
 	var bs bootstraps
 	var name string
 	var hop bool
@@ -135,6 +193,9 @@ func main() {
 	// var privKeyHex string = "1e21018070ceefa36c774ffb16e6eda246e3b89537874397a87357399189210f"
 	
 	flag.StringVar(&privKeyHex, "priv", "", "Replace Ether Key with libp2p PeerID")
+	flag.BoolVar(&connect, "connect", false, "first stream")
+	flag.StringVar(&dialID, "dial", "", "diali Node ID")
+
 	flag.Var(&bs, "bootstrap", "will connect to this `PEER` to bootstrap the network")
 	flag.StringVar(&name, "nickname", "", "this `NAME` will be attached to your messages")
 	flag.BoolVar(&hop, "relay", false, "allows other peers to relay through this peer")
@@ -176,44 +237,11 @@ func main() {
 		enableRelay,
 		libp2p.EnableAutoRelay(),
 	)
-	fmt.Println("ID: ",h.ID())
+	//h.Addrs()[0]
+	fmt.Println("Addr:",h.ID())
 	if err != nil {
 		logger.Fatalf("could not start libp2p host: %v", err)
 	}
-
-	// subscribe to messages
-	p, err := pubsub.NewFloodSub(ctx, h)
-	if err != nil {
-		logger.Fatalf("could not start pubsub: %v", err)
-	}
-	t, err := p.Join(topic)
-	if err != nil {
-		logger.Fatalf("could not join pubsub topic: %v", err)
-	}
-	sub, err := t.Subscribe()
-	if err != nil {
-		logger.Fatalf("could not subscribe to topic: %v", err)
-	}
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-			next, err := sub.Next(ctx)
-			if err != nil {
-				logger.Fatalf("could not get next message: %v", err)
-			}
-			m := message{}
-			err = json.Unmarshal(next.Data, &m)
-			if err != nil {
-				logger.Errorf("could not decode message: %v", err)
-				continue
-			}
-			log.Append(m)
-		}
-	}()
 
 	// connect to bootstrap peers
 	for _, b := range bs {
@@ -238,28 +266,51 @@ func main() {
 		return
 	}
 
-	// send messages
-	fmt.Println("welcome to the chat!")
-	s := bufio.NewScanner(os.Stdin)
-	for s.Scan() {
-		m := message{
-			Clock: log.clock,
-			ID:    peer.Encode(h.ID()),
-			Name:  name,
-			Text:  s.Text(),
-		}
-		b, err := json.Marshal(m)
-		if err != nil {
-			logger.Errorf("could not marshal message: %v", err)
-			continue
-		}
-		err = t.Publish(ctx, b)
-		if err != nil {
-			logger.Errorf("could not publish message: %v", err)
-			continue
-		}
+	if connect && dialID == "" {
+		fmt.Println("A")
+		h.SetStreamHandler("/test", func(s network.Stream){
+			rw := bufio. NewReadWriter(bufio.NewReader(s), bufio.NewWriter(s))
+			fmt.Println("---Start---")
+			go readData(rw)
+			go writeData(rw)
+		})
 	}
-	if s.Err() != nil {
-		logger.Fatalf("input scanner error: %v", err)
+	if dialID != ""{
+		fmt.Println("B")
+		dialNodeID, err := peer.IDB58Decode(dialID)
+		errCheck(err)
+		fmt.Println("dial", dialNodeID)
+		_, err = h.NewStream(context.Background(), dialNodeID, "/test")
+		if err == nil {
+			fmt.Println("worked")
+				return
+		}
+		fmt.Println("No connection")
+		h.Network().(*swarm.Swarm).Backoff().Clear(dialNodeID)
+		multiaddr.SwapToP2pMultiaddrs()
+		relayaddr, err := multiaddr.NewMultiaddr("/ip4/115.85.181.212/tcp/30000/p2p/16Uiu2HAm7pQ7EJJdNEpsbVgsUdZ9wYMRfr8hXRTUDWNtM4A7jhwc/p2p-circuit/p2p/"+dialNodeID.Pretty())
+		errCheck(err)
+		relayInfo := peer.AddrInfo{
+			ID: dialNodeID,
+			Addrs: []multiaddr.Multiaddr{relayaddr},
+		}
+		h.SetStreamHandler("/test", handleStream)
+		if err:= h.Connect(context.Background(), relayInfo); err != nil{
+			panic(err)
+		}
+		s, err := h.NewStream(context.Background(), dialNodeID, "/test")
+		if err != nil {
+			fmt.Println("worked")
+			panic(err)
+			return
+		}else {
+			fmt.Println("connected to: ", relayInfo.ID)
+			rw := bufio.NewReadWriter(bufio.NewReader(s), bufio.NewWriter(s))
+			go writeData(rw)
+			go readData(rw)
+		}
+
 	}
+
+	select{}
 }
