@@ -11,7 +11,7 @@ import (
 	"time"
 	 "crypto/ecdsa"
 
-	 swarm "github.com/libp2p/go-libp2p-swarm"	
+	 swarm "github.com/libp2p/go-libp2p-swarm"
 	 "github.com/libp2p/go-libp2p-core/network"
 	 ethCrypto "github.com/ethereum/go-ethereum/crypto"
 	 libp2p "github.com/libp2p/go-libp2p"
@@ -191,7 +191,7 @@ func main() {
 	var ip string
 	var privKeyHex string
 	// var privKeyHex string = "1e21018070ceefa36c774ffb16e6eda246e3b89537874397a87357399189210f"
-	
+
 	flag.StringVar(&privKeyHex, "priv", "", "Replace Ether Key with libp2p PeerID")
 	flag.BoolVar(&connect, "connect", false, "first stream")
 	flag.StringVar(&dialID, "dial", "", "diali Node ID")
@@ -214,7 +214,7 @@ func main() {
 	if err != nil{
 		panic(err)
 	}*/
-	
+
 	if hop && ip == "" {
 		logger.Fatal("a public ip address is required when starting as a relay")
 	}
@@ -268,7 +268,7 @@ func main() {
 
 	if connect && dialID == "" {
 		fmt.Println("A")
-		h.SetStreamHandler("/test", func(s network.Stream){
+		h.SetStreamHandler("/example/chat/0.1.0", func(s network.Stream){
 			rw := bufio. NewReadWriter(bufio.NewReader(s), bufio.NewWriter(s))
 			fmt.Println("---Start---")
 			go readData(rw)
@@ -280,7 +280,7 @@ func main() {
 		dialNodeID, err := peer.IDB58Decode(dialID)
 		errCheck(err)
 		fmt.Println("dial", dialNodeID)
-		_, err = h.NewStream(context.Background(), dialNodeID, "/test")
+		_, err = h.NewStream(context.Background(), dialNodeID, "/example/chat/0.1.0")
 		if err == nil {
 			fmt.Println("worked")
 				return
@@ -288,17 +288,17 @@ func main() {
 		fmt.Println("No connection")
 		h.Network().(*swarm.Swarm).Backoff().Clear(dialNodeID)
 		multiaddr.SwapToP2pMultiaddrs()
-		relayaddr, err := multiaddr.NewMultiaddr("/ip4/115.85.181.212/tcp/30000/p2p/16Uiu2HAm7pQ7EJJdNEpsbVgsUdZ9wYMRfr8hXRTUDWNtM4A7jhwc/p2p-circuit/p2p/"+dialNodeID.Pretty())
+		relayaddr, err := multiaddr.NewMultiaddr("/ip4/115.85.181.212/tcp/30000/p2p/16Uiu2HAmB25j29wr77zLBqbZrEkRvXa4KG3SB5hgvrXfE4KgipE5/p2p-circuit/p2p/"+dialNodeID.Pretty())
 		errCheck(err)
 		relayInfo := peer.AddrInfo{
 			ID: dialNodeID,
 			Addrs: []multiaddr.Multiaddr{relayaddr},
 		}
-		h.SetStreamHandler("/test", handleStream)
+		h.SetStreamHandler("/example/chat/0.1.0", handleStream)
 		if err:= h.Connect(context.Background(), relayInfo); err != nil{
 			panic(err)
 		}
-		s, err := h.NewStream(context.Background(), dialNodeID, "/test")
+		s, err := h.NewStream(context.Background(), dialNodeID, "/example/chat/0.1.0")
 		if err != nil {
 			fmt.Println("worked")
 			panic(err)
