@@ -294,7 +294,7 @@ func main() {
 			ID: dialNodeID,
 			Addrs: []multiaddr.Multiaddr{relayaddr},
 		}
-		h.SetStreamHandler("/example/chat/0.1.0", handleStream)
+		
 		if err:= h.Connect(context.Background(), relayInfo); err != nil{
 			panic(err)
 		}
